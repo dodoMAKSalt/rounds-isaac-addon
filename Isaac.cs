@@ -276,7 +276,7 @@ namespace RoundsSettingsMod
             Player owner = ph.ownPlayer != null ? ph.ownPlayer : gun.player; if (owner == null) return;
             if (!Pw.Any(owner)) return;
 
-            if (Time.time < BelialUntil(owner)) ph.damage *= 1.8f;
+            if (Time.time < BelialUntil(owner)) ph.damage *= 1.4f;
 
             // самонаведение
             float homing = Pw.N(owner, "i_spoonbender") * 1.6f + Pw.N(owner, "i_ludovico") * 4.5f + Pw.N(owner, "i_sacredheart") * 2.6f;
@@ -299,7 +299,7 @@ namespace RoundsSettingsMod
                 Vector2 o = bullet.transform.position, d = bullet.transform.forward; d.Normalize();
                 float dmg = ph.damage * ph.dealDamageMultiplierr;
                 float range = 45f, width = 0.5f, mult = 1f; int col = 0;
-                if (laser == 1) { mult = 1.6f; width = 0.55f; col = 0; }
+                if (laser == 1) { mult = 1.5f; width = 0.55f; col = 0; }
                 else if (laser == 2) { mult = 0.7f; width = 0.2f; col = 1; }
                 else { mult = 1.3f; width = 0.45f; col = 6; range = 4.5f; }
                 var hit = DoBeam(owner, o, d, range, mask, dmg * mult, mine);
@@ -446,7 +446,7 @@ namespace RoundsSettingsMod
             for (int i = 0; i < 6; i++)
             {
                 if (!Pw.Alive(p) || !Pw.BattleOn) yield break;
-                ActiveBeam(p, 22f, 1.3f, 0, 60f);
+                ActiveBeam(p, 10f, 1.3f, 0, 60f);
                 yield return new WaitForSeconds(0.35f);
             }
         }
@@ -496,7 +496,7 @@ namespace RoundsSettingsMod
                     }
                     break;
                 case "i_megablast": StartCoroutine(MegaBlast(p)); break;
-                case "i_shoop": ActiveBeam(p, 70f, 1.6f, 4, 60f); break;
+                case "i_shoop": ActiveBeam(p, 40f, 1.6f, 4, 60f); break;
                 case "i_hourglass":
                     Send(5, pid, pos.x, pos.y, 10f, 1, 0.6f);
                     foreach (var e in Pw.Enemies(p)) { Send(3, e.PlayerID, 0.7f); StartCoroutine(SlowAgain(e.PlayerID)); }
@@ -525,7 +525,7 @@ namespace RoundsSettingsMod
                         Vector2 dv = (Vector2)e.transform.position - pos; float dist = dv.magnitude;
                         if (dist > 8f) continue;
                         Vector2 dir = dv.sqrMagnitude > 0.001f ? dv.normalized : Vector2.up;
-                        e.data.healthHandler.CallTakeDamage(dir * (60f * (1f - 0.5f * dist / 8f)), e.transform.position, wpn, p);
+                        e.data.healthHandler.CallTakeDamage(dir * (40f * (1f - 0.5f * dist / 8f)), e.transform.position, wpn, p);
                         e.data.healthHandler.CallTakeForce(dir * Pw.Mass(e) * 20f);
                     }
                     p.data.healthHandler.CallTakeDamage(Vector2.up * 25f, pos, wpn, p, false);
