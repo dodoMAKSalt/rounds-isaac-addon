@@ -277,9 +277,12 @@ namespace RoundsSettingsMod
             if (!Pw.Any(owner)) return;
 
             if (Time.time < BelialUntil(owner)) ph.damage *= 1.4f;
+            float still = IsaacRunner.Still(owner);
+            if (still >= 1.5f && Pw.N(owner, "i_ambush") > 0) ph.damage *= 1.4f;
 
             // самонаведение
             float homing = Pw.N(owner, "i_spoonbender") * 1.6f + Pw.N(owner, "i_ludovico") * 4.5f + Pw.N(owner, "i_sacredheart") * 2.6f;
+            if (still >= 1.5f && Pw.N(owner, "z_hunter") > 0) homing += 3.5f;
             if (homing > 0f) { var hb = bullet.AddComponent<HomingBullet>(); hb.Strength = homing; hb.Owner = owner; }
 
             // размер пули (после этого ProjectileHit.Start увеличит урон пропорционально)
@@ -298,6 +301,7 @@ namespace RoundsSettingsMod
                 LayerMask mask = rct != null ? rct.mask : (LayerMask)(~0);
                 Vector2 o = bullet.transform.position, d = bullet.transform.forward; d.Normalize();
                 float dmg = ph.damage * ph.dealDamageMultiplierr;
+                if (dmg <= 0.01f) dmg = 25f * Mathf.Max(0.3f, gun.damage);
                 float range = 45f, width = 0.5f, mult = 1f; int col = 0;
                 if (laser == 1) { mult = 1.5f; width = 0.55f; col = 0; }
                 else if (laser == 2) { mult = 0.7f; width = 0.2f; col = 1; }
@@ -337,33 +341,48 @@ namespace RoundsSettingsMod
             if (go != null) { try { PhotonNetwork.Destroy(go); } catch (Exception) { Destroy(go); } }
         }
 
-        // считает луч, наносит урон (только на стороне владельца), возвращает конечную точку
+        static int beamLogs;
+
+        // «твёрдая» преграда для луча: карта/блоки, но не игроки, пули и эффекты
+        static bool IsSolid(Collider2D col)
+        {
+            if (col == null || col.isTrigger) return false;
+            if (col.GetComponentInParent<Player>() != null) return false;
+            if (col.GetComponentInParent<ProjectileHit>() != null) return false;
+            if (col.GetComponentInParent<SpawnedAttack>() != null) return false;
+            return true;
+        }
+
+        // считает луч, наносит урон (только на стороне владельца), возвращает конечную точку.
+        // Цели ищем геометрически (близость к лучу), а не по маске пули: так урон идёт всегда
         static Vector2 DoBeam(Player owner, Vector2 o, Vector2 d, float range, LayerMask mask, float damage, bool canDamage)
         {
-            var hits = Physics2D.RaycastAll(o, d, range, mask);
-            Array.Sort(hits, delegate(RaycastHit2D a, RaycastHit2D b) { return a.distance.CompareTo(b.distance); });
             float end = range;
-            var victims = new List<Player>(); var pts = new List<Vector2>();
+            var hits = Physics2D.RaycastAll(o, d, range);
             for (int i = 0; i < hits.Length; i++)
             {
-                var col = hits[i].collider; if (col == null) continue;
-                var pl = col.GetComponentInParent<Player>();
-                if (pl != null)
-                {
-                    if (pl == owner || pl.TeamID == owner.TeamID || !Pw.Alive(pl) || victims.Contains(pl)) continue;
-                    victims.Add(pl); pts.Add(hits[i].point); continue;
-                }
-                if (col.isTrigger) continue;
-                end = hits[i].distance; break;
+                if (!IsSolid(hits[i].collider)) continue;
+                if (hits[i].distance < end) end = hits[i].distance;
             }
+            int n = 0;
             if (canDamage && damage > 0f)
             {
                 var wpn = owner.data.weaponHandler.gun.gameObject;
-                for (int i = 0; i < victims.Count; i++)
+                foreach (var e in Pw.Enemies(owner))
                 {
-                    var v = victims[i];
-                    v.data.healthHandler.CallTakeDamage(d * damage, pts[i], wpn, owner);
+                    Vector2 c = e.transform.position;
+                    float t = Vector2.Dot(c - o, d);
+                    if (t < -0.5f || t > end + 0.8f) continue;
+                    Vector2 closest = o + d * Mathf.Clamp(t, 0f, end);
+                    if ((c - closest).magnitude > 1.25f) continue;
+                    e.data.healthHandler.CallTakeDamage(d * damage, c, wpn, owner);
+                    n++;
                 }
+            }
+            if (beamLogs < 6)
+            {
+                beamLogs++;
+                RoundsSettingsPlugin.Warn("Isaac beam: урон=" + damage.ToString("0.0") + " canDamage=" + canDamage + " дальность=" + end.ToString("0.0") + " целей=" + n);
             }
             return o + d * end;
         }
@@ -549,6 +568,35 @@ namespace RoundsSettingsMod
             return Input.GetKeyDown(IsaacAddonPlugin.ActiveKey.Value);
         }
 
+        // ---------- «стоишь на месте» ----------
+        static readonly Dictionary<int, Vector2> lastPos = new Dictionary<int, Vector2>();
+        static readonly Dictionary<int, float> stillT = new Dictionary<int, float>();
+        static readonly Dictionary<int, float> healAt = new Dictionary<int, float>();
+
+        public static float Still(Player p) { float v; return stillT.TryGetValue(p.PlayerID, out v) ? v : 0f; }
+
+        void TrackStill(Player p)
+        {
+            int pid = p.PlayerID;
+            Vector2 pos = p.transform.position, prev;
+            float dt = Mathf.Max(Time.deltaTime, 0.0001f), t;
+            stillT.TryGetValue(pid, out t);
+            bool moved = lastPos.TryGetValue(pid, out prev) && (pos - prev).magnitude / dt > 0.6f;
+            lastPos[pid] = pos;
+            if (!Pw.Alive(p) || !Pw.BattleOn || moved) { stillT[pid] = 0f; return; }
+            float before = t; t += dt; stillT[pid] = t;
+            bool has = Pw.N(p, "i_ambush") > 0 || Pw.N(p, "z_stoneform") > 0 || Pw.N(p, "z_hunter") > 0;
+            if (!has) return;
+            float need = Pw.N(p, "z_stoneform") > 0 ? 2f : 1.5f;
+            if (before < need && t >= need && p.IsLocal) Fx.Ring(pos, 1.8f, 5, 0.5f); // сигнал: бонус включился
+            // каменная поза лечит: владелец раз в 0.5 с шлёт всем событие лечения
+            if (t >= 2f && Pw.N(p, "z_stoneform") > 0 && p.data.view.IsMine)
+            {
+                float next; healAt.TryGetValue(pid, out next);
+                if (Time.time >= next) { healAt[pid] = Time.time + 0.5f; Send(2, pid, 1f * Pw.N(p, "z_stoneform")); }
+            }
+        }
+
         void Update()
         {
             if (!IsaacAddonPlugin.On) return;
@@ -557,6 +605,7 @@ namespace RoundsSettingsMod
             for (int i = 0; i < players.Count; i++)
             {
                 var p = players[i]; if (p == null || p.data == null) continue;
+                TrackStill(p);
                 UpdateOrbits(p);
                 if (!p.IsLocal || !Pw.Alive(p) || !Pw.BattleOn || !Pw.Any(p)) continue;
                 if (!PressedActive(p)) continue;
@@ -666,13 +715,14 @@ namespace RoundsSettingsMod
 
         [HarmonyPatch(typeof(HealthHandler), "DoDamage")]
         [HarmonyPrefix]
-        static bool DamagePre(HealthHandler __instance, Vector2 damage, bool healthRemoval, HealthHandler.DamageSource damageSource)
+        static bool DamagePre(HealthHandler __instance, ref Vector2 damage, bool healthRemoval, HealthHandler.DamageSource damageSource)
         {
             try
             {
                 if (!IsaacAddonPlugin.On) return true;
                 var p = __instance.GetComponent<Player>();
                 if (IsaacRunner.Absorb(p, damage, healthRemoval, damageSource)) return false;
+                if (p != null && !healthRemoval && Pw.N(p, "z_stoneform") > 0 && IsaacRunner.Still(p) >= 2f) damage *= 0.6f;
             }
             catch (Exception e) { RoundsSettingsPlugin.Warn("Isaac.DamagePre: " + e); }
             return true;

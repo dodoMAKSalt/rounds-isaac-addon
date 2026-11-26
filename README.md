@@ -15,5 +15,5 @@
 3. Запустите игру через Steam. Меню — F8.
 
 ## Аддон (Isaac / S.T.A.L.K.E.R.)
-73 карты с настоящими механиками, активка на Q (геймпад — Y). Выключить: удалить DLL аддона или `Enabled = false` в `BepInEx\config\com.dmah.roundssettings.isaac.cfg` (нужен перезапуск, у всех одинаково).
+76 карт с настоящими механиками, активка на Q (геймпад — Y). Выключить: удалить DLL аддона или `Enabled = false` в `BepInEx\config\com.dmah.roundssettings.isaac.cfg` (нужен перезапуск, у всех одинаково).
 Сборка аддона: `bash build.sh`.
